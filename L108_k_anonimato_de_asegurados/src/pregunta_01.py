@@ -1,3 +1,9 @@
+import os
+import json
+import numpy as np
+import pandas as pd
+
+
 def pregunta_01():
     """
     Una aseguradora quiere publicar datos de sus afiliados para que un grupo
@@ -79,5 +85,113 @@ def pregunta_01():
           ...
         }
     """
+    df = pd.read_csv('data/insurance.csv.gz', compression='gzip')
 
-    raise NotImplementedError
+    original_qis = ['age', 'sex', 'bmi', 'children', 'region']
+    original_class_sizes = df.groupby(original_qis, dropna=False).size()
+    original_k = int(original_class_sizes.min())
+    original_unique_records = int((original_class_sizes == 1).sum())
+
+    df['age_group'] = pd.cut(
+        df['age'], 
+        bins=[17, 29, 39, 49, 100], 
+        labels=['18-29', '30-39', '40-49', '50-64']
+    ).astype(str)
+
+    # bmi_group (right=False para: <18.5, [18.5, 25), [25, 30), >=30)
+    df['bmi_group'] = pd.cut(
+        df['bmi'], 
+        bins=[0, 18.5, 25, 30, float('inf')], 
+        right=False, 
+        labels=['bajo peso', 'normal', 'sobrepeso', 'obesidad']
+    ).astype(str)
+
+    df['children_group'] = np.where(
+        df['children'] == 0, '0',
+        np.where(df['children'] <= 2, '1-2', '3+')
+    )
+
+    # Definir esquemas
+    schemes = {
+        'with_children': ['age_group', 'sex', 'bmi_group', 'children_group', 'region'],
+        'without_children': ['age_group', 'sex', 'bmi_group', 'region']
+    }
+    
+    report_schemes = {}
+    published_dfs = {}
+
+    # Evaluar esquemas
+    for scheme_name, qi_cols in schemes.items():
+        class_sizes = df.groupby(qi_cols, dropna=False).size().reset_index(name='class_size')
+        df_scheme = df.merge(class_sizes, on=qi_cols, how='left')
+        
+        # Métricas antes de la supresión
+        equiv_classes = len(class_sizes)
+        k_before = int(class_sizes['class_size'].min())
+        
+        # Suprimir clases menores a k=5
+        df_published = df_scheme[df_scheme['class_size'] >= 5].copy()
+        
+        suppressed_records = len(df) - len(df_published)
+        published_records = len(df_published)
+        published_classes = df_published.groupby(qi_cols, dropna=False).ngroups
+        
+        if published_records > 0:
+            smoker_diversity = df_published.groupby(qi_cols, dropna=False)['smoker'].nunique().reset_index(name='smoker_nunique')
+            bad_classes_df = smoker_diversity[smoker_diversity['smoker_nunique'] == 1]
+            classes_without_diversity = len(bad_classes_df)
+            
+            if classes_without_diversity > 0:
+                # Contar los registros que caen en esas clases sin diversidad
+                records_without_diversity = len(df_published.merge(bad_classes_df[qi_cols], on=qi_cols, how='inner'))
+            else:
+                records_without_diversity = 0
+        else:
+            classes_without_diversity = 0
+            records_without_diversity = 0
+            
+        report_schemes[scheme_name] = {
+            "quasi_identifiers": qi_cols,
+            "equivalence_classes": equiv_classes,
+            "k_before_suppression": k_before,
+            "suppressed_records": suppressed_records,
+            "published_records": published_records,
+            "published_classes": published_classes,
+            "classes_without_smoker_diversity": classes_without_diversity,
+            "records_without_smoker_diversity": records_without_diversity
+        }
+        published_dfs[scheme_name] = df_published
+
+    if report_schemes['with_children']['suppressed_records'] <= report_schemes['without_children']['suppressed_records']:
+        selected_scheme = 'with_children'
+    else:
+        selected_scheme = 'without_children'
+
+    mean_charges_original = float(df['charges'].mean())
+    smoker_rate_original = float((df['smoker'] == 'yes').mean())
+
+    df_selected_published = published_dfs[selected_scheme]
+    mean_charges_published = float(df_selected_published['charges'].mean())
+    smoker_rate_published = float((df_selected_published['smoker'] == 'yes').mean())
+
+    report = {
+        "original_k": original_k,
+        "original_unique_records": original_unique_records,
+        "schemes": report_schemes,
+        "selected_scheme": selected_scheme,
+        "mean_charges_original": mean_charges_original,
+        "mean_charges_published": mean_charges_published,
+        "smoker_rate_original": smoker_rate_original,
+        "smoker_rate_published": smoker_rate_published
+    }
+
+    os.makedirs('submission', exist_ok=True)
+    with open('submission/privacy_report.json', 'w') as f:
+        json.dump(report, f, indent=4)
+        
+    selected_cols = schemes[selected_scheme] + ['smoker', 'charges']
+    df_out = df_selected_published[selected_cols]
+    
+    df_out.to_csv('submission/insurance_published.csv', index=False)
+
+    return report
