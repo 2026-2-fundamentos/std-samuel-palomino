@@ -1,3 +1,8 @@
+import csv
+import gzip
+from pathlib import Path
+
+
 def pregunta_03():
     """
     Sume los valores de la segunda columna (`value`) para cada letra de la
@@ -8,5 +13,9 @@ def pregunta_03():
 
         [("A", 53), ("B", 36), ("C", 27), ...]
     """
-
-    raise NotImplementedError
+    totals = {}
+    path = Path(__file__).resolve().parents[1] / "data" / "data.csv.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as file:
+        for row in csv.reader(file, delimiter="\t"):
+            totals[row[0]] = totals.get(row[0], 0) + int(row[1])
+    return sorted(totals.items())

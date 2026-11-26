@@ -1,3 +1,8 @@
+import csv
+import gzip
+from pathlib import Path
+
+
 def pregunta_06():
     """
     La quinta columna (`metrics`) contiene pares `clave:valor` separados por
@@ -12,5 +17,12 @@ def pregunta_06():
 
         [("aaa", 1, 9), ("bbb", 1, 9), ...]
     """
-
-    raise NotImplementedError
+    values = {}
+    path = Path(__file__).resolve().parents[1] / "data" / "data.csv.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as file:
+        reader = csv.reader(file, delimiter="\t")
+        for row in reader:
+            for item in row[4].split(","):
+                key, value = item.split(":")
+                values.setdefault(key, []).append(int(value))
+    return [(key, min(group), max(group)) for key, group in sorted(values.items())]

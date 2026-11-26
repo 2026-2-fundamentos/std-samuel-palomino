@@ -1,3 +1,8 @@
+import csv
+import gzip
+from pathlib import Path
+
+
 def pregunta_05():
     """
     Para cada letra de la primera columna (`letter`), encuentre el valor
@@ -8,5 +13,9 @@ def pregunta_05():
 
         [("A", 9, 2), ("B", 9, 1), ...]
     """
-
-    raise NotImplementedError
+    values = {}
+    path = Path(__file__).resolve().parents[1] / "data" / "data.csv.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as file:
+        for row in csv.reader(file, delimiter="\t"):
+            values.setdefault(row[0], []).append(int(row[1]))
+    return [(letter, max(group), min(group)) for letter, group in sorted(values.items())]
