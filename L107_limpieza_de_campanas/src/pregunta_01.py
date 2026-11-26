@@ -1,4 +1,8 @@
+import os
+import glob
+
 import pandas as pd
+import numpy as np
 
 
 def clean_campaign_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -42,5 +46,43 @@ def clean_campaign_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         0,1,261,...,2022-05-13
         ...
     """
+    files = glob.glob("data/bank-marketing-campaing-*.csv.gz")
+    df_list = [pd.read_csv(f, compression='gzip') for f in files]
+    df = pd.concat(df_list, ignore_index=True)
 
-    raise NotImplementedError
+    client_cols = ['client_id', 'age', 'job', 'marital', 'education', 'credit_default', 'mortgage']
+    client = df[client_cols].copy()
+    
+    client['job'] = client['job'].str.replace('.', '', regex=False).str.replace('-', '_', regex=False)
+    
+    client['education'] = client['education'].str.replace('.', '_', regex=False).replace('unknown', np.nan)
+    
+    client['credit_default'] = (client['credit_default'] == 'yes').astype(int)
+    client['mortgage'] = (client['mortgage'] == 'yes').astype(int)
+
+    campaign_cols = ['client_id', 'number_contacts', 'contact_duration', 
+                     'previous_campaign_contacts', 'previous_outcome', 'campaign_outcome']
+    campaign = df[campaign_cols + ['month', 'day']].copy()
+    
+    campaign['previous_outcome'] = (campaign['previous_outcome'] == 'success').astype(int)
+    campaign['campaign_outcome'] = (campaign['campaign_outcome'] == 'yes').astype(int)
+    
+    # Mapear meses si vienen como texto (ej: 'may', 'jun') o procesarlo directamente con to_datetime
+    date_str = "2022-" + campaign['month'].astype(str).str.capitalize() + "-" + campaign['day'].astype(str)
+    campaign['last_contact_date'] = pd.to_datetime(date_str, format='%Y-%b-%d').dt.strftime('%Y-%m-%d')    
+    
+    # Eliminar month y day, y reordenar columnas
+    campaign = campaign[['client_id', 'number_contacts', 'contact_duration', 
+                         'previous_campaign_contacts', 'previous_outcome', 
+                         'campaign_outcome', 'last_contact_date']]
+
+    economics_cols = ['client_id', 'cons_price_idx', 'euribor_three_months']
+    economics = df[economics_cols].copy()
+
+    # 5. Guardar archivos en submission/
+    os.makedirs('submission', exist_ok=True)
+    client.to_csv('submission/client.csv', index=False)
+    campaign.to_csv('submission/campaign.csv', index=False)
+    economics.to_csv('submission/economics.csv', index=False)
+
+    return client, campaign, economics
