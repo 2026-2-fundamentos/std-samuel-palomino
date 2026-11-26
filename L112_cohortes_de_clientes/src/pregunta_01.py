@@ -1,4 +1,7 @@
+import os
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 def build_cohort_analysis() -> pd.DataFrame:
@@ -43,5 +46,52 @@ def build_cohort_analysis() -> pd.DataFrame:
         2022-01,1,26,100,0.26
         ...
     """
+    df = pd.read_csv('data/sales.csv.gz', compression='gzip', parse_dates=['OrderDate'])
+    
+    df['order_month'] = df['OrderDate'].dt.to_period('M')
+    
+    cohorts = df.groupby('CustomerID')['order_month'].min().reset_index()
+    cohorts.columns = ['CustomerID', 'cohort_month_period']
+    
+    df = df.merge(cohorts, on='CustomerID')
+    
+    df['period_index'] = (df['order_month'] - df['cohort_month_period']).apply(lambda x: x.n)
+    
+    df['cohort_month'] = df['cohort_month_period'].dt.strftime('%Y-%m')
+    
+    retention = df.groupby(['cohort_month', 'period_index'], as_index=False).agg(
+        active_customers=('CustomerID', 'nunique')
+    )
+    
+    cohort_sizes = retention[retention['period_index'] == 0][['cohort_month', 'active_customers']].copy()
+    cohort_sizes.rename(columns={'active_customers': 'cohort_size'}, inplace=True)
+    
+    retention = retention.merge(cohort_sizes, on='cohort_month')
+    retention['retention_rate'] = retention['active_customers'] / retention['cohort_size']
+    
+    retention = retention.sort_values(['cohort_month', 'period_index'])
+    retention_out = retention[[
+        'cohort_month', 'period_index', 'active_customers', 'cohort_size', 'retention_rate'
+    ]]
+    
+    os.makedirs('submission', exist_ok=True)
+    retention_out.to_csv('submission/cohort_retention.csv', index=False)
+    
+    retention_pivot = retention_out.pivot(index='cohort_month', columns='period_index', values='retention_rate')
+    
+    plt.figure(figsize=(14, 10))
+    sns.heatmap(
+        retention_pivot, 
+        annot=True, 
+        cmap="Blues", 
+        cbar=False,
+        linewidths=0.5
+    )
+    plt.title('Tasa de Retención por Cohorte')
+    plt.ylabel('Mes de Cohorte')
+    plt.xlabel('Índice de Periodo')
+    plt.tight_layout()
+    plt.savefig('submission/cohort_retention_heatmap.png')
+    plt.close()
 
-    raise NotImplementedError
+    return retention_out
