@@ -22,3 +22,6 @@
 --
 --  Escriba su consulta debajo de esta línea.
 --
+SELECT '2018' AS YEAR, COUNT(*) AS CANT
+FROM tbl1
+WHERE c14 >= '2018-01-01' AND c14 < '2019-01-01';
