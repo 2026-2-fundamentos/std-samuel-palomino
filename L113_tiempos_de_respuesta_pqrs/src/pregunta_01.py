@@ -1,3 +1,6 @@
+import os
+
+import numpy as np
 import pandas as pd
 
 
@@ -60,5 +63,62 @@ def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         letter,28138,...
         ...
     """
+    df_web = pd.read_csv('data/historical_requests_web.csv.gz').drop_duplicates()
+    df_letter = pd.read_csv('data/historical_requests_letter.csv.gz').drop_duplicates()
+    
+    df_web['channel'] = 'web'
+    df_letter['channel'] = 'letter'
+    
+    df = pd.concat([df_web, df_letter], ignore_index=True)
+    
+    df['in_date'] = pd.to_datetime(df['in_date'])
+    df['out_date'] = pd.to_datetime(df['out_date'])
+    df['year'] = df['in_date'].dt.year
+    df['day_of_week'] = df['in_date'].dt.dayofweek  
+    
+    if 'day_name' not in df.columns:
+        df['day_name'] = df['in_date'].dt.day_name()
+    
+    answered_mask = df['out_date'].notna()
+    
+    df['calendar_days'] = np.nan
+    df['business_days'] = np.nan
+    
+    df.loc[answered_mask, 'calendar_days'] = (df.loc[answered_mask, 'out_date'] - df.loc[answered_mask, 'in_date']).dt.days
+    
+    # Para excluir in_date e incluir out_date, desplazamos las fechas 1 día hacia adelante
+    in_dates_arr = df.loc[answered_mask, 'in_date'].values.astype('datetime64[D]') + np.timedelta64(1, 'D')
+    out_dates_arr = df.loc[answered_mask, 'out_date'].values.astype('datetime64[D]') + np.timedelta64(1, 'D')
+    
+    df.loc[answered_mask, 'business_days'] = np.busday_count(in_dates_arr, out_dates_arr)
+    
+    df['on_time'] = False
+    df.loc[answered_mask, 'on_time'] = df.loc[answered_mask, 'business_days'] <= 15
 
-    raise NotImplementedError
+    channel_summary = df.groupby('channel', as_index=False).agg(
+        requests=('in_date', 'count'),
+        answered=('out_date', 'count'),
+        pending=('out_date', lambda x: x.isna().sum()),
+        median_business_days=('business_days', 'median'),
+        on_time_rate=('on_time', 'mean')
+    ).sort_values('channel')
+    
+    yearly_summary = df.groupby(['year', 'channel'], as_index=False).agg(
+        requests=('in_date', 'count'),
+        pending=('out_date', lambda x: x.isna().sum()),
+        on_time_rate=('on_time', 'mean')
+    ).sort_values(['year', 'channel'])
+    
+    entry_day_summary = df.groupby(['day_of_week', 'day_name'], as_index=False).agg(
+        requests=('in_date', 'count'),
+        median_calendar_days=('calendar_days', 'median'),
+        median_business_days=('business_days', 'median')
+    )
+    entry_day_summary = entry_day_summary.sort_values('day_of_week').drop(columns=['day_of_week'])
+    
+    os.makedirs('submission', exist_ok=True)
+    channel_summary.to_csv('submission/channel_summary.csv', index=False)
+    yearly_summary.to_csv('submission/yearly_summary.csv', index=False)
+    entry_day_summary.to_csv('submission/entry_day_summary.csv', index=False)
+    
+    return channel_summary, yearly_summary, entry_day_summary
