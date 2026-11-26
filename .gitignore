@@ -1,13 +1,10 @@
 .DS_Store
 
-P_*/temp/*
-!P_*/temp/.gitkeep
 PRE_*/temp/*
 !PRE_*/temp/.gitkeep
-L_*/temp/*
-!L_*/temp/.gitkeep
-LAB_*/temp/*
-!LAB_*/temp/.gitkeep
+
+P_*/temp/*
+!P_*/temp/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
